@@ -14,7 +14,7 @@
 #define NUM_PIXELS          240
 #define PIXELS_PIN          1
 #define BLINKING_LED        0
-#define BRIGHTNESS          50
+#define BRIGHTNESS          200
 
 // --- ANIMATION SYSTEM CONFIGURATION ---
 #define MAX_TRACKS          10  // Maximum number of comma-separated animation tracks
@@ -56,14 +56,27 @@ void serialPrintLn(const char *format, ...) {
   }
 }
 
-void setHEXColor(uint16_t index, const String& hexColorStr) {
+// Helper to convert a hex string directly into a NeoPixel packed 32-bit color WITH GAMMA CORRECTION
+uint32_t parseHexToColor(const String& hexColorStr) {
   long rgb = strtol(hexColorStr.c_str(), NULL, 16);
-  uint8_t red = rgb >> 16;
-  uint8_t green = (rgb & 0x00ff00) >> 8;
-  uint8_t blue = (rgb & 0x0000ff);
+  
+  uint8_t rawRed   = rgb >> 16;
+  uint8_t rawGreen = (rgb & 0x00ff00) >> 8;
+  uint8_t rawBlue  = (rgb & 0x0000ff);
 
+  // FIXED: Apply Adafruit's optimized mathematical gamma translation matrix
+  uint8_t gammaRed   = ledArray.gamma8(rawRed);
+  uint8_t gammaGreen = ledArray.gamma8(rawGreen);
+  uint8_t gammaBlue  = ledArray.gamma8(rawBlue);
+
+  return ledArray.Color(gammaRed, gammaGreen, gammaBlue);
+}
+
+// FIXED: Now safely re-uses parseHexToColor to inherit global gamma calibration curves
+void setHEXColor(uint16_t index, const String& hexColorStr) {
   if (index < NUM_PIXELS) {
-    ledArray.setPixelColor(index, ledArray.Color(red, green, blue));
+    uint32_t packedColor = parseHexToColor(hexColorStr);
+    ledArray.setPixelColor(index, packedColor);
   } else {
     serialPrintLn("Warning: Index %d out of bounds", index);
   }
@@ -88,12 +101,6 @@ void setHEXColorforLEDs(const String& indexStr, const String& hexColorStr) {
     index = endIndex + 1;
   }
   serialPrintLn("Set %d LEDs to colour %s", ledCount, hexColorStr.c_str());
-}
-
-// Helper to convert a hex string directly into a NeoPixel packed 32-bit color
-uint32_t parseHexToColor(const String& hexColorStr) {
-  long rgb = strtol(hexColorStr.c_str(), NULL, 16);
-  return ledArray.Color((rgb >> 16), ((rgb & 0x00ff00) >> 8), (rgb & 0x0000ff));
 }
 
 // Helper to parse and store incoming animation payload sequences safely
@@ -134,7 +141,7 @@ void parseAnimationCommand(const String& payload) {
         ledIndex = slashIndex + 1;
       }
 
-      // 2. Extract Colours for current track
+      // 2. Extract Colours for current track (with safe terminal parameter index calculation)
       uint16_t colorIndex = 0;
       uint16_t colorsLength = colorsSection.length();
       while (colorIndex < colorsLength && currentTrack.colorCount < MAX_COLORS_PER_TRACK) {
@@ -143,8 +150,13 @@ void parseAnimationCommand(const String& payload) {
           slashIndex = colorsLength;
         }
         String colorHex = colorsSection.substring(colorIndex, slashIndex);
-        currentTrack.colors[currentTrack.colorCount++] = parseHexToColor(colorHex);
+        if (colorHex.length() > 0) {
+          currentTrack.colors[currentTrack.colorCount++] = parseHexToColor(colorHex);
+        }
         colorIndex = slashIndex + 1;
+        if (slashIndex == colorsLength) {
+          break;
+        }
       }
 
       if (currentTrack.ledCount > 0 && currentTrack.colorCount > 0) {
