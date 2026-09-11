@@ -1,7 +1,7 @@
 #include <BLEDevice.h>
 #include <BLEUtils.h>
 #include <BLEServer.h>
-#include <Adafruit_NeoPixel.h>
+#include <FastLED.h> // FIXED: Replaced Adafruit_NeoPixel with FastLED
 
 #define LED_BUILTIN 8
 #define SERIAL_BAUDRATE 115200
@@ -23,7 +23,7 @@
 struct AnimationTrack {
   uint16_t leds[MAX_LEDS_PER_TRACK];
   uint16_t ledCount = 0;
-  uint32_t colors[MAX_COLORS_PER_TRACK]; 
+  CRGB colors[MAX_COLORS_PER_TRACK]; // FIXED: Uses FastLED CRGB type
   uint16_t colorCount = 0;
   uint16_t currentColorIndex = 0;
 };
@@ -37,25 +37,23 @@ unsigned long deviceConnectingStart = 0;
 bool deviceConnected = false;
 bool enableSerial = true;
 
-Adafruit_NeoPixel ledArray(NUM_PIXELS, PIXELS_PIN, NEO_GRB + NEO_KHZ800);
+// FIXED: Define the FastLED pixel array buffer
+CRGB leds[NUM_PIXELS];
 
-// FIXED: Increased buffer size and safety limiters to completely prevent memory corruption
 void serialPrintLn(const char *format, ...) {
   if (enableSerial) {
-    char buffer[256]; 
-  
+    char buffer[128];
     va_list args;
     va_start(args, format);
     vsnprintf(buffer, sizeof(buffer), format, args);
     va_end(args);
-    
     Serial.println(buffer);
   }
 }
 
-uint32_t parseHexToColor(const String& hexColorStr) {
-  // FIXED: If BLE packet truncation causes a shortened color string, ignore it safely
-  if (hexColorStr.length() < 6) return 0;
+// FIXED: Uses FastLED's native inline gamma correction utility
+CRGB parseHexToColor(const String& hexColorStr) {
+  if (hexColorStr.length() < 6) return CRGB::Black;
 
   long rgb = strtol(hexColorStr.c_str(), NULL, 16);
   
@@ -63,18 +61,20 @@ uint32_t parseHexToColor(const String& hexColorStr) {
   uint8_t rawGreen = (rgb & 0x00ff00) >> 8;
   uint8_t rawBlue  = (rgb & 0x0000ff);
 
-  uint8_t gammaRed   = ledArray.gamma8(rawRed);
-  uint8_t gammaGreen = ledArray.gamma8(rawGreen);
-  uint8_t gammaBlue  = ledArray.gamma8(rawBlue);
+  // Initialize the FastLED color object
+  CRGB color = CRGB(rawRed, rawGreen, rawBlue);
 
-  return ledArray.Color(gammaRed, gammaGreen, gammaBlue);
+  // Apply FastLED's built-in mathematical gamma translation (value of 2.2-2.5)
+  color.r = applyGamma_video(color.r, 2.5);
+  color.g = applyGamma_video(color.g, 2.5);
+  color.b = applyGamma_video(color.b, 2.5);
+
+  return color;
 }
 
-// FIXED: Explicitly protects against signed negative values (-1 underflow)
 void setHEXColor(int32_t index, const String& hexColorStr) {
   if (index >= 0 && index < NUM_PIXELS) {
-    uint32_t packedColor = parseHexToColor(hexColorStr);
-    ledArray.setPixelColor(index, packedColor);
+    leds[index] = parseHexToColor(hexColorStr);
   } else {
     serialPrintLn("Warning: Out of bounds index skipped.");
   }
@@ -83,7 +83,6 @@ void setHEXColor(int32_t index, const String& hexColorStr) {
 void setHEXColorforLEDs(const String& indexStr, const String& hexColorStr) {
   uint16_t index = 0;
   uint16_t length = indexStr.length();
-  uint16_t ledCount = 0;
 
   while (index < length) {
     int16_t endIndex = indexStr.indexOf('/', index);
@@ -91,13 +90,9 @@ void setHEXColorforLEDs(const String& indexStr, const String& hexColorStr) {
       endIndex = length;
     }
     String ledStr = indexStr.substring(index, endIndex);
-    
-    // FIXED: Parse as a signed long first to catch negative inputs safely
     int32_t led = atol(ledStr.c_str()); 
 
     setHEXColor(led, hexColorStr);
-    ledCount++;
-
     index = endIndex + 1;
   }
 }
@@ -152,7 +147,7 @@ void parseAnimationCommand(const String& payload) {
           slashIndex = colorsLength;
         }
         String colorHex = colorsSection.substring(colorIndex, slashIndex);
-        if (colorHex.length() >= 6) { // Safeguard truncation
+        if (colorHex.length() >= 6) { 
           if (currentTrack.colorCount < MAX_COLORS_PER_TRACK) {
             currentTrack.colors[currentTrack.colorCount++] = parseHexToColor(colorHex);
           }
@@ -185,16 +180,16 @@ void runAnimationLoop() {
 
     for (uint16_t t = 0; t < activeTrackCount; t++) {
       AnimationTrack& track = animTracks[t];
-      uint32_t activeColor = track.colors[track.currentColorIndex];
+      CRGB activeColor = track.colors[track.currentColorIndex];
 
       for (uint16_t l = 0; l < track.ledCount; l++) {
         if (track.leds[l] < NUM_PIXELS) {
-          ledArray.setPixelColor(track.leds[l], activeColor);
+          leds[track.leds[l]] = activeColor;
         }
       }
       track.currentColorIndex = (track.currentColorIndex + 1) % track.colorCount;
     }
-    ledArray.show();
+    FastLED.show(); // FIXED: Uses FastLED transmission engine
   }
 }
 
@@ -203,7 +198,7 @@ class MyServerCallbacks: public BLEServerCallbacks {
       deviceConnected = true;
       digitalWrite(LED_BUILTIN, HIGH);
       setHEXColor(BLINKING_LED, "00FF00");
-      ledArray.show();
+      FastLED.show();
       serialPrintLn("Next.js app connected!");
     }
 
@@ -238,7 +233,7 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
           }
           index = endIndex + 1;
         }
-        ledArray.show();
+        FastLED.show();
       } 
       else if (value.startsWith("ANIM|")) {
         parseAnimationCommand(value);
@@ -256,9 +251,10 @@ void setup() {
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, HIGH);
 
-  ledArray.begin();
-  ledArray.setBrightness(BRIGHTNESS);
-  ledArray.show();
+  // FIXED: Initialise FastLED explicitly for WS2812B on PIXELS_PIN (GPIO 1)
+  FastLED.addLeds<WS2812B, PIXELS_PIN, GRB>(leds, NUM_PIXELS);
+  FastLED.setBrightness(BRIGHTNESS);
+  FastLED.show();
 
   BLEDevice::init(BLE_NAME);
   BLEServer *pServer = BLEDevice::createServer();
@@ -278,10 +274,6 @@ void setup() {
   pAdvertising->addServiceUUID(SERVICE_UUID);
   pAdvertising->setScanResponse(true);
   
-  // Set explicit MTU size preference
-  pAdvertising->setMinPreferred(0x06);  
-  pAdvertising->setMinPreferred(0x12);
-  
   BLEDevice::startAdvertising();
 }
 
@@ -298,6 +290,6 @@ void loop() {
 
     String lightColour = statusLightOn ? "0000FF" : "000000";
     setHEXColor(BLINKING_LED, lightColour);
-    ledArray.show();
+    FastLED.show();
   }
 }
