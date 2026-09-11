@@ -6,7 +6,6 @@
 #define LED_BUILTIN 8
 #define SERIAL_BAUDRATE 115200
 
-// Unique UUIDs matching your Next.js frontend application
 #define SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
 #define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
 #define BLE_NAME            "TABLERUNNER-ASC"
@@ -16,16 +15,15 @@
 #define BLINKING_LED        0
 #define BRIGHTNESS          200
 
-// --- ANIMATION SYSTEM CONFIGURATION ---
-#define MAX_TRACKS          10  // Maximum number of comma-separated animation tracks
-#define MAX_LEDS_PER_TRACK  24  // Maximum number of LEDs controlled by a single track
-#define MAX_COLORS_PER_TRACK 8  // Maximum number of cycling colors per track
-#define ANIMATION_INTERVAL 500  // Color transition interval in milliseconds
+#define MAX_TRACKS          10  
+#define MAX_LEDS_PER_TRACK  24  
+#define MAX_COLORS_PER_TRACK 8  
+#define ANIMATION_INTERVAL 500  
 
 struct AnimationTrack {
   uint16_t leds[MAX_LEDS_PER_TRACK];
   uint16_t ledCount = 0;
-  uint32_t colors[MAX_COLORS_PER_TRACK]; // Pre-converted NeoPixel Color values
+  uint32_t colors[MAX_COLORS_PER_TRACK]; 
   uint16_t colorCount = 0;
   uint16_t currentColorIndex = 0;
 };
@@ -34,18 +32,17 @@ AnimationTrack animTracks[MAX_TRACKS];
 uint16_t activeTrackCount = 0;
 bool animationActive = false;
 unsigned long lastAnimationUpdate = 0;
-// --------------------------------------
 
 unsigned long deviceConnectingStart = 0;
 bool deviceConnected = false;
 bool enableSerial = true;
 
-/* the LED pixel array controller */
 Adafruit_NeoPixel ledArray(NUM_PIXELS, PIXELS_PIN, NEO_GRB + NEO_KHZ800);
 
+// FIXED: Increased buffer size and safety limiters to completely prevent memory corruption
 void serialPrintLn(const char *format, ...) {
   if (enableSerial) {
-    char buffer[128];
+    char buffer[256]; 
   
     va_list args;
     va_start(args, format);
@@ -56,15 +53,16 @@ void serialPrintLn(const char *format, ...) {
   }
 }
 
-// Helper to convert a hex string directly into a NeoPixel packed 32-bit color WITH GAMMA CORRECTION
 uint32_t parseHexToColor(const String& hexColorStr) {
+  // FIXED: If BLE packet truncation causes a shortened color string, ignore it safely
+  if (hexColorStr.length() < 6) return 0;
+
   long rgb = strtol(hexColorStr.c_str(), NULL, 16);
   
   uint8_t rawRed   = rgb >> 16;
   uint8_t rawGreen = (rgb & 0x00ff00) >> 8;
   uint8_t rawBlue  = (rgb & 0x0000ff);
 
-  // FIXED: Apply Adafruit's optimized mathematical gamma translation matrix
   uint8_t gammaRed   = ledArray.gamma8(rawRed);
   uint8_t gammaGreen = ledArray.gamma8(rawGreen);
   uint8_t gammaBlue  = ledArray.gamma8(rawBlue);
@@ -72,13 +70,13 @@ uint32_t parseHexToColor(const String& hexColorStr) {
   return ledArray.Color(gammaRed, gammaGreen, gammaBlue);
 }
 
-// FIXED: Now safely re-uses parseHexToColor to inherit global gamma calibration curves
-void setHEXColor(uint16_t index, const String& hexColorStr) {
-  if (index < NUM_PIXELS) {
+// FIXED: Explicitly protects against signed negative values (-1 underflow)
+void setHEXColor(int32_t index, const String& hexColorStr) {
+  if (index >= 0 && index < NUM_PIXELS) {
     uint32_t packedColor = parseHexToColor(hexColorStr);
     ledArray.setPixelColor(index, packedColor);
   } else {
-    serialPrintLn("Warning: Index %d out of bounds", index);
+    serialPrintLn("Warning: Out of bounds index skipped.");
   }
 }
 
@@ -93,22 +91,22 @@ void setHEXColorforLEDs(const String& indexStr, const String& hexColorStr) {
       endIndex = length;
     }
     String ledStr = indexStr.substring(index, endIndex);
-    uint16_t led = atol(ledStr.c_str());
+    
+    // FIXED: Parse as a signed long first to catch negative inputs safely
+    int32_t led = atol(ledStr.c_str()); 
 
     setHEXColor(led, hexColorStr);
     ledCount++;
 
     index = endIndex + 1;
   }
-  serialPrintLn("Set %d LEDs to colour %s", ledCount, hexColorStr.c_str());
 }
 
-// Helper to parse and store incoming animation payload sequences safely
 void parseAnimationCommand(const String& payload) {
-  animationActive = false; // Halt engine during processing modifications
+  animationActive = false; 
   activeTrackCount = 0;
   
-  uint16_t trackStart = 5; // Skip past the initial prefix boundary "ANIM|"
+  uint16_t trackStart = 5; 
   uint16_t payloadLength = payload.length();
 
   while (trackStart < payloadLength && activeTrackCount < MAX_TRACKS) {
@@ -129,7 +127,6 @@ void parseAnimationCommand(const String& payload) {
       currentTrack.colorCount = 0;
       currentTrack.currentColorIndex = 0;
 
-      // 1. Extract LEDs for current track WITH BUFFER OVERFLOW GUARD
       uint16_t ledIndex = 0;
       uint16_t ledsLength = ledsSection.length();
       while (ledIndex < ledsLength) {
@@ -138,17 +135,15 @@ void parseAnimationCommand(const String& payload) {
           slashIndex = ledsLength;
         }
         
-        // FIXED: Stop saving to array if we exceed capacity, avoiding memory corruption
         if (currentTrack.ledCount < MAX_LEDS_PER_TRACK) {
-          currentTrack.leds[currentTrack.ledCount++] = atol(ledsSection.substring(ledIndex, slashIndex).c_str());
-        } else {
-          serialPrintLn("Warning: Track %d reached MAX_LEDS_PER_TRACK limit!", activeTrackCount);
+          int32_t rawLed = atol(ledsSection.substring(ledIndex, slashIndex).c_str());
+          if (rawLed >= 0 && rawLed < NUM_PIXELS) {
+             currentTrack.leds[currentTrack.ledCount++] = rawLed;
+          }
         }
-        
         ledIndex = slashIndex + 1;
       }
 
-      // 2. Extract Colours for current track WITH BUFFER OVERFLOW GUARD
       uint16_t colorIndex = 0;
       uint16_t colorsLength = colorsSection.length();
       while (colorIndex < colorsLength) {
@@ -157,12 +152,9 @@ void parseAnimationCommand(const String& payload) {
           slashIndex = colorsLength;
         }
         String colorHex = colorsSection.substring(colorIndex, slashIndex);
-        if (colorHex.length() > 0) {
-          // FIXED: Stop saving to array if we exceed capacity
+        if (colorHex.length() >= 6) { // Safeguard truncation
           if (currentTrack.colorCount < MAX_COLORS_PER_TRACK) {
             currentTrack.colors[currentTrack.colorCount++] = parseHexToColor(colorHex);
-          } else {
-            serialPrintLn("Warning: Track %d reached MAX_COLORS_PER_TRACK limit!", activeTrackCount);
           }
         }
         colorIndex = slashIndex + 1;
@@ -181,11 +173,10 @@ void parseAnimationCommand(const String& payload) {
   if (activeTrackCount > 0) {
     animationActive = true;
     lastAnimationUpdate = millis();
-    serialPrintLn("Animation loaded: %d tracks configured.", activeTrackCount);
+    serialPrintLn("Animation loaded.");
   }
 }
 
-// Dedicated loop runner to handle updating pixels based on configured tracks
 void runAnimationLoop() {
   if (!animationActive || activeTrackCount == 0) return;
 
@@ -196,50 +187,40 @@ void runAnimationLoop() {
       AnimationTrack& track = animTracks[t];
       uint32_t activeColor = track.colors[track.currentColorIndex];
 
-      // Draw the active step color to all matching pins in the sequence track
       for (uint16_t l = 0; l < track.ledCount; l++) {
         if (track.leds[l] < NUM_PIXELS) {
           ledArray.setPixelColor(track.leds[l], activeColor);
         }
       }
-
-      // Advance color index for the next cycle loop step
       track.currentColorIndex = (track.currentColorIndex + 1) % track.colorCount;
     }
     ledArray.show();
   }
 }
 
-// Callback class to monitor connection changes
 class MyServerCallbacks: public BLEServerCallbacks {
     void onConnect(BLEServer* pServer) override {
       deviceConnected = true;
       digitalWrite(LED_BUILTIN, HIGH);
-
-      String lightColour = "00FF00";
-      setHEXColor(BLINKING_LED, lightColour);
+      setHEXColor(BLINKING_LED, "00FF00");
       ledArray.show();
       serialPrintLn("Next.js app connected!");
     }
 
     void onDisconnect(BLEServer* pServer) override {
       deviceConnected = false;
-      animationActive = false; // Terminate animation cycles on disconnect
+      animationActive = false; 
       deviceConnectingStart = millis();
-
-      serialPrintLn("Next.js app disconnected.");
       BLEDevice::startAdvertising();
-      serialPrintLn("Restarted advertising... Waiting for reconnect.");
     }
 };
 
-// Callback class to handle incoming messages from Next.js
 class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic *pCharacteristic) override {
       String value = String(pCharacteristic->getValue().c_str());
 
       if (value.startsWith("LED|")) {
-        animationActive = false; // Standard static command overrides animation mode
+        animationActive = false; 
         uint16_t index = 4;
         uint16_t length = value.length(); 
 
@@ -255,14 +236,11 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
 
             setHEXColorforLEDs(ledStr, colourStr);
           }
-
           index = endIndex + 1;
         }
-        serialPrintLn("Action executed: Set LED colours");
         ledArray.show();
       } 
       else if (value.startsWith("ANIM|")) {
-        serialPrintLn("Processing animation stream command...");
         parseAnimationCommand(value);
       }
     }
@@ -271,14 +249,10 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
 void setup() {
   if (enableSerial) {
     Serial.begin(SERIAL_BAUDRATE);
-    while (!Serial && millis() < 3000) {
-      delay(10);
-    }
-    serialPrintLn("Started Serial Output");
+    delay(500);
   }
 
   deviceConnectingStart = millis();
-
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, HIGH);
 
@@ -286,14 +260,11 @@ void setup() {
   ledArray.setBrightness(BRIGHTNESS);
   ledArray.show();
 
-  serialPrintLn("Initialising ESP32-C BLE...");
   BLEDevice::init(BLE_NAME);
-
   BLEServer *pServer = BLEDevice::createServer();
   pServer->setCallbacks(new MyServerCallbacks());
 
   BLEService *pService = pServer->createService(SERVICE_UUID);
-
   BLECharacteristic *pCharacteristic = pService->createCharacteristic(
                                          CHARACTERISTIC_UUID,
                                          BLECharacteristic::PROPERTY_READ |
@@ -307,24 +278,22 @@ void setup() {
   pAdvertising->addServiceUUID(SERVICE_UUID);
   pAdvertising->setScanResponse(true);
   
+  // Set explicit MTU size preference
   pAdvertising->setMinPreferred(0x06);  
   pAdvertising->setMinPreferred(0x12);
   
   BLEDevice::startAdvertising();
-  serialPrintLn("BLE Active. Open TableRunner App to connect.");
 }
 
 void loop() {
   delay(10); 
 
   if (deviceConnected) {
-    // Run the multi-track color animation when connected and configured
     runAnimationLoop();
   } 
   else {
     unsigned long actualMillis = millis() - deviceConnectingStart;
     unsigned long statusLightOn = (actualMillis / 250) % 2;
-
     digitalWrite(LED_BUILTIN, statusLightOn ? LOW : HIGH);
 
     String lightColour = statusLightOn ? "0000FF" : "000000";
@@ -332,4 +301,3 @@ void loop() {
     ledArray.show();
   }
 }
-
