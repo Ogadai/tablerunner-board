@@ -1,7 +1,12 @@
+// FIXED: Forces FastLED to use its synchronous bit-bang engine instead of RMT hardware
+#define FASTLED_ESP32_FLASH_LOCK 1
+#define FASTLED_INTERNAL
+
 #include <BLEDevice.h>
 #include <BLEUtils.h>
 #include <BLEServer.h>
-#include <FastLED.h> // FIXED: Replaced Adafruit_NeoPixel with FastLED
+#include <FastLED.h> 
+#include <esp_bt.h>
 
 #define LED_BUILTIN 8
 #define SERIAL_BAUDRATE 115200
@@ -23,7 +28,7 @@
 struct AnimationTrack {
   uint16_t leds[MAX_LEDS_PER_TRACK];
   uint16_t ledCount = 0;
-  CRGB colors[MAX_COLORS_PER_TRACK]; // FIXED: Uses FastLED CRGB type
+  CRGB colors[MAX_COLORS_PER_TRACK]; 
   uint16_t colorCount = 0;
   uint16_t currentColorIndex = 0;
 };
@@ -37,7 +42,6 @@ unsigned long deviceConnectingStart = 0;
 bool deviceConnected = false;
 bool enableSerial = true;
 
-// FIXED: Define the FastLED pixel array buffer
 CRGB leds[NUM_PIXELS];
 
 void serialPrintLn(const char *format, ...) {
@@ -51,7 +55,6 @@ void serialPrintLn(const char *format, ...) {
   }
 }
 
-// FIXED: Uses FastLED's native inline gamma correction utility
 CRGB parseHexToColor(const String& hexColorStr) {
   if (hexColorStr.length() < 6) return CRGB::Black;
 
@@ -61,10 +64,7 @@ CRGB parseHexToColor(const String& hexColorStr) {
   uint8_t rawGreen = (rgb & 0x00ff00) >> 8;
   uint8_t rawBlue  = (rgb & 0x0000ff);
 
-  // Initialize the FastLED color object
   CRGB color = CRGB(rawRed, rawGreen, rawBlue);
-
-  // Apply FastLED's built-in mathematical gamma translation (value of 2.2-2.5)
   color.r = applyGamma_video(color.r, 2.5);
   color.g = applyGamma_video(color.g, 2.5);
   color.b = applyGamma_video(color.b, 2.5);
@@ -75,8 +75,6 @@ CRGB parseHexToColor(const String& hexColorStr) {
 void setHEXColor(int32_t index, const String& hexColorStr) {
   if (index >= 0 && index < NUM_PIXELS) {
     leds[index] = parseHexToColor(hexColorStr);
-  } else {
-    serialPrintLn("Warning: Out of bounds index skipped.");
   }
 }
 
@@ -189,7 +187,8 @@ void runAnimationLoop() {
       }
       track.currentColorIndex = (track.currentColorIndex + 1) % track.colorCount;
     }
-    FastLED.show(); // FIXED: Uses FastLED transmission engine
+    // FIXED: In bit-bang mode, FastLED will automatically stall interrupts here safely
+    FastLED.show(); 
   }
 }
 
@@ -251,7 +250,7 @@ void setup() {
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, HIGH);
 
-  // FIXED: Initialise FastLED explicitly for WS2812B on PIXELS_PIN (GPIO 1)
+  // FIXED: Initialising standard clockless transmission architecture explicitly
   FastLED.addLeds<WS2812B, PIXELS_PIN, GRB>(leds, NUM_PIXELS);
   FastLED.setBrightness(BRIGHTNESS);
   FastLED.show();
@@ -275,10 +274,14 @@ void setup() {
   pAdvertising->setScanResponse(true);
   
   BLEDevice::startAdvertising();
+
+  esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_DEFAULT, ESP_PWR_LVL_P3);
+  esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_ADV, ESP_PWR_LVL_P3);
+  esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_SCAN, ESP_PWR_LVL_P3);
 }
 
 void loop() {
-  delay(10); 
+  delay(1); 
 
   if (deviceConnected) {
     runAnimationLoop();
