@@ -1,4 +1,3 @@
-// FIXED: Forces FastLED to use its synchronous bit-bang engine instead of RMT hardware
 #define FASTLED_ESP32_FLASH_LOCK 1
 #define FASTLED_INTERNAL
 
@@ -41,6 +40,9 @@ unsigned long lastAnimationUpdate = 0;
 unsigned long deviceConnectingStart = 0;
 bool deviceConnected = false;
 bool enableSerial = true;
+
+// FIXED: Tracks the previous status light state to prevent hammering FastLED.show()
+unsigned long lastStatusLightState = 999; 
 
 CRGB leds[NUM_PIXELS];
 
@@ -187,7 +189,6 @@ void runAnimationLoop() {
       }
       track.currentColorIndex = (track.currentColorIndex + 1) % track.colorCount;
     }
-    // FIXED: In bit-bang mode, FastLED will automatically stall interrupts here safely
     FastLED.show(); 
   }
 }
@@ -204,7 +205,10 @@ class MyServerCallbacks: public BLEServerCallbacks {
     void onDisconnect(BLEServer* pServer) override {
       deviceConnected = false;
       animationActive = false; 
+      activeTrackCount = 0; // FIXED: Safely wipe track assignments down to 0 on disconnect
+      lastStatusLightState = 999; // Reset state machine trigger
       deviceConnectingStart = millis();
+      serialPrintLn("Disconnected. Reinforcing Advertising arrays.");
       BLEDevice::startAdvertising();
     }
 };
@@ -250,7 +254,6 @@ void setup() {
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, HIGH);
 
-  // FIXED: Initialising standard clockless transmission architecture explicitly
   FastLED.addLeds<WS2812B, PIXELS_PIN, GRB>(leds, NUM_PIXELS);
   FastLED.setBrightness(BRIGHTNESS);
   FastLED.show();
@@ -289,10 +292,17 @@ void loop() {
   else {
     unsigned long actualMillis = millis() - deviceConnectingStart;
     unsigned long statusLightOn = (actualMillis / 250) % 2;
-    digitalWrite(LED_BUILTIN, statusLightOn ? LOW : HIGH);
 
-    String lightColour = statusLightOn ? "0000FF" : "000000";
-    setHEXColor(BLINKING_LED, lightColour);
-    FastLED.show();
+    // FIXED: Only trigger FastLED updates when the status state actually changes.
+    // This stops hammering FastLED.show() and gives the advertising BLE radio clean execution priority.
+    if (statusLightOn != lastStatusLightState) {
+      lastStatusLightState = statusLightOn;
+      
+      digitalWrite(LED_BUILTIN, statusLightOn ? LOW : HIGH);
+
+      String lightColour = statusLightOn ? "0000FF" : "000000";
+      setHEXColor(BLINKING_LED, lightColour);
+      FastLED.show();
+    }
   }
 }
