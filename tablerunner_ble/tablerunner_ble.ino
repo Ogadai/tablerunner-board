@@ -129,29 +129,41 @@ void parseAnimationCommand(const String& payload) {
       currentTrack.colorCount = 0;
       currentTrack.currentColorIndex = 0;
 
-      // 1. Extract LEDs for current track
+      // 1. Extract LEDs for current track WITH BUFFER OVERFLOW GUARD
       uint16_t ledIndex = 0;
       uint16_t ledsLength = ledsSection.length();
-      while (ledIndex < ledsLength && currentTrack.ledCount < MAX_LEDS_PER_TRACK) {
+      while (ledIndex < ledsLength) {
         int16_t slashIndex = ledsSection.indexOf('/', ledIndex);
         if (slashIndex == -1) {
           slashIndex = ledsLength;
         }
-        currentTrack.leds[currentTrack.ledCount++] = atol(ledsSection.substring(ledIndex, slashIndex).c_str());
+        
+        // FIXED: Stop saving to array if we exceed capacity, avoiding memory corruption
+        if (currentTrack.ledCount < MAX_LEDS_PER_TRACK) {
+          currentTrack.leds[currentTrack.ledCount++] = atol(ledsSection.substring(ledIndex, slashIndex).c_str());
+        } else {
+          serialPrintLn("Warning: Track %d reached MAX_LEDS_PER_TRACK limit!", activeTrackCount);
+        }
+        
         ledIndex = slashIndex + 1;
       }
 
-      // 2. Extract Colours for current track (with safe terminal parameter index calculation)
+      // 2. Extract Colours for current track WITH BUFFER OVERFLOW GUARD
       uint16_t colorIndex = 0;
       uint16_t colorsLength = colorsSection.length();
-      while (colorIndex < colorsLength && currentTrack.colorCount < MAX_COLORS_PER_TRACK) {
+      while (colorIndex < colorsLength) {
         int16_t slashIndex = colorsSection.indexOf('/', colorIndex);
         if (slashIndex == -1) {
           slashIndex = colorsLength;
         }
         String colorHex = colorsSection.substring(colorIndex, slashIndex);
         if (colorHex.length() > 0) {
-          currentTrack.colors[currentTrack.colorCount++] = parseHexToColor(colorHex);
+          // FIXED: Stop saving to array if we exceed capacity
+          if (currentTrack.colorCount < MAX_COLORS_PER_TRACK) {
+            currentTrack.colors[currentTrack.colorCount++] = parseHexToColor(colorHex);
+          } else {
+            serialPrintLn("Warning: Track %d reached MAX_COLORS_PER_TRACK limit!", activeTrackCount);
+          }
         }
         colorIndex = slashIndex + 1;
         if (slashIndex == colorsLength) {
