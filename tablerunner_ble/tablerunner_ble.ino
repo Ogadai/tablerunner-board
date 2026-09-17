@@ -15,9 +15,9 @@
 #define BLE_NAME            "TABLERUNNER-ASC"
 
 #define NUM_PIXELS          240
-#define PIXELS_PIN          1
+#define PIXELS_PIN          5
 #define BLINKING_LED        0
-#define BRIGHTNESS          200
+#define BRIGHTNESS          50
 
 #define MAX_TRACKS          10  
 #define MAX_LEDS_PER_TRACK  24  
