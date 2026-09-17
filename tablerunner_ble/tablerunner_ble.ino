@@ -219,8 +219,8 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
       String value = String(pCharacteristic->getValue().c_str());
 
       if (value.startsWith("LED|")) {
-        animationActive = false; 
         animationActive = false;
+        
         uint16_t index = 4;
         uint16_t length = value.length(); 
 
