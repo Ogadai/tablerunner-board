@@ -43,6 +43,7 @@ bool enableSerial = true;
 
 // FIXED: Tracks the previous status light state to prevent hammering FastLED.show()
 unsigned long lastStatusLightState = 999; 
+bool ledUpdated = false;
 
 CRGB leds[NUM_PIXELS];
 
@@ -219,6 +220,7 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
 
       if (value.startsWith("LED|")) {
         animationActive = false; 
+        animationActive = false;
         uint16_t index = 4;
         uint16_t length = value.length(); 
 
@@ -236,7 +238,10 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
           }
           index = endIndex + 1;
         }
-        FastLED.show();
+        
+        ledUpdated = true;
+        // FIXED: Do NOT run FastLED.show() here! 
+        // Let the main loop handle it in a structured way to prevent partial-packet glitches.
       } 
       else if (value.startsWith("ANIM|")) {
         parseAnimationCommand(value);
@@ -287,17 +292,24 @@ void loop() {
   delay(1); 
 
   if (deviceConnected) {
-    runAnimationLoop();
+    if (animationActive) {
+      runAnimationLoop();
+    } 
+    else {
+      EVERY_N_MILLISECONDS(33) {
+        if (ledUpdated) {
+          ledUpdated = false;
+          FastLED.show();
+        }
+      }
+    }
   } 
   else {
     unsigned long actualMillis = millis() - deviceConnectingStart;
     unsigned long statusLightOn = (actualMillis / 250) % 2;
 
-    // FIXED: Only trigger FastLED updates when the status state actually changes.
-    // This stops hammering FastLED.show() and gives the advertising BLE radio clean execution priority.
     if (statusLightOn != lastStatusLightState) {
       lastStatusLightState = statusLightOn;
-      
       digitalWrite(LED_BUILTIN, statusLightOn ? LOW : HIGH);
 
       String lightColour = statusLightOn ? "0000FF" : "000000";
@@ -306,3 +318,4 @@ void loop() {
     }
   }
 }
+
