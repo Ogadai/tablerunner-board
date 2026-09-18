@@ -1,3 +1,4 @@
+#define FASTLED_RMT_BLUETOOTH_CAPABLE_PLATFORM 1
 #define FASTLED_ESP32_FLASH_LOCK 1
 #define FASTLED_INTERNAL
 // ==========================================
@@ -182,7 +183,6 @@ void runAnimationLoop() {
   if (!animationActive || activeTrackCount == 0) return;
 
   if (millis() - lastAnimationUpdate >= ANIMATION_INTERVAL) {
-    ledEditing = true;
     lastAnimationUpdate = millis();
 
     for (uint16_t t = 0; t < activeTrackCount; t++) {
@@ -197,7 +197,6 @@ void runAnimationLoop() {
       track.currentColorIndex = (track.currentColorIndex + 1) % track.colorCount;
     }
     ledUpdated = true;
-    ledEditing = false;
   }
 }
 
@@ -319,31 +318,28 @@ void setup() {
 }
 
 void loop() {
-  delay(1); 
+  EVERY_N_MILLISECONDS(33) {
+    if (deviceConnected) {
+      if (animationActive) {
+        runAnimationLoop();
+      }
+    } 
+    else {
+      unsigned long actualMillis = millis() - deviceConnectingStart;
+      unsigned long statusLightOn = (actualMillis / 250) % 2;
 
-  if (deviceConnected) {
-    if (animationActive) {
-      runAnimationLoop();
+      if (statusLightOn != lastStatusLightState) {
+        lastStatusLightState = statusLightOn;
+        digitalWrite(LED_BUILTIN, statusLightOn ? LOW : HIGH);
+
+        String lightColour = statusLightOn ? "0000FF" : "000000";
+        setHEXColor(BLINKING_LED, lightColour);
+        ledUpdated = true;
+      }
     }
-  } 
-  else {
-    unsigned long actualMillis = millis() - deviceConnectingStart;
-    unsigned long statusLightOn = (actualMillis / 250) % 2;
 
-    if (statusLightOn != lastStatusLightState) {
-      lastStatusLightState = statusLightOn;
-      digitalWrite(LED_BUILTIN, statusLightOn ? LOW : HIGH);
-
-      String lightColour = statusLightOn ? "0000FF" : "000000";
-      setHEXColor(BLINKING_LED, lightColour);
-      ledUpdated = true;
-    }
-  }
-
-  EVERY_N_MILLISECONDS(100) {
     if (ledUpdated && !ledEditing) {
       ledUpdated = false;
-
       FastLED.show();
     }
   }
