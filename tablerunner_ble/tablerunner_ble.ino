@@ -1,5 +1,7 @@
-#define FASTLED_RMT_BLUETOOTH_CAPABLE_PLATFORM 1
-#define FASTLED_ESP32_FLASH_LOCK 1
+// #define FASTLED_ALLOW_INTERRUPTS 0
+// #define FASTLED_INTERRUPT_RETRY_COUNT 2
+// #define FASTLED_RMT_BLUETOOTH_CAPABLE_PLATFORM 1
+// #define FASTLED_ESP32_FLASH_LOCK 1
 #define FASTLED_INTERNAL
 // ==========================================
 // FIX 1: Force FastLED to use Hardware SPI for standard definitions
@@ -279,12 +281,9 @@ void setup() {
   digitalWrite(LED_BUILTIN, HIGH);
 
   // C3 defaults: change the MOSI pin to 5 before initialization
-  SPI.end(); // Clear defaults if any exist
-  // Parameters: SCK, MISO, MOSI, SS (We only care about MOSI being Pin 5)
-  SPI.begin(2, 3, 5, 4); 
-
-  // Set the hardware SPI clock speed to 4MHz (extremely stable for single-core WS2812B)
-  SPI.setFrequency(4000000); 
+  // SPI.end(); // Clear defaults if any exist
+  // SPI.begin(2, 3, 5, 4); 
+  // SPI.setFrequency(4000000); 
 
   // Standard WS2812B, but operates via hardware DMA SPI
   FastLED.addLeds<WS2812B, PIXELS_PIN, GRB>(leds, NUM_PIXELS);
