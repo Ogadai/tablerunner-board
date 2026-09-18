@@ -240,11 +240,21 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
         }
         
         ledUpdated = true;
-        // FIXED: Do NOT run FastLED.show() here! 
-        // Let the main loop handle it in a structured way to prevent partial-packet glitches.
       } 
       else if (value.startsWith("ANIM|")) {
         parseAnimationCommand(value);
+      }
+      else if (value.startsWith("BRIT|")) {
+        // Extract string data past "BRIT|" prefix
+        String brightnessStr = value.substring(5);
+        int newBrightness = brightnessStr.toInt();
+        
+        // Constrain incoming data to safe 0-255 bounds for FastLED
+        newBrightness = constrain(newBrightness, 0, 255);
+        
+        FastLED.setBrightness(newBrightness);
+        ledUpdated = true;
+        serialPrintLn("Brightness updated to: %d", newBrightness);
       }
     }
 };
@@ -317,4 +327,3 @@ void loop() {
     }
   }
 }
-
