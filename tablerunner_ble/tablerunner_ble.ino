@@ -190,7 +190,7 @@ void runAnimationLoop() {
       }
       track.currentColorIndex = (track.currentColorIndex + 1) % track.colorCount;
     }
-    FastLED.show(); 
+    ledUpdated = true;
   }
 }
 
@@ -199,7 +199,7 @@ class MyServerCallbacks: public BLEServerCallbacks {
       deviceConnected = true;
       digitalWrite(LED_BUILTIN, HIGH);
       setHEXColor(BLINKING_LED, "00FF00");
-      FastLED.show();
+      ledUpdated = true;
       serialPrintLn("Next.js app connected!");
     }
 
@@ -294,14 +294,6 @@ void loop() {
   if (deviceConnected) {
     if (animationActive) {
       runAnimationLoop();
-    } 
-    else {
-      EVERY_N_MILLISECONDS(33) {
-        if (ledUpdated) {
-          ledUpdated = false;
-          FastLED.show();
-        }
-      }
     }
   } 
   else {
@@ -314,6 +306,13 @@ void loop() {
 
       String lightColour = statusLightOn ? "0000FF" : "000000";
       setHEXColor(BLINKING_LED, lightColour);
+      ledUpdated = true;
+    }
+  }
+
+  EVERY_N_MILLISECONDS(33) {
+    if (ledUpdated) {
+      ledUpdated = false;
       FastLED.show();
     }
   }
