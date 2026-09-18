@@ -1,7 +1,6 @@
-// #define FASTLED_ALLOW_INTERRUPTS 0
-// #define FASTLED_INTERRUPT_RETRY_COUNT 2
-// #define FASTLED_RMT_BLUETOOTH_CAPABLE_PLATFORM 1
-// #define FASTLED_ESP32_FLASH_LOCK 1
+#define FASTLED_INTERRUPT_RETRY_COUNT 2
+#define FASTLED_RMT_BLUETOOTH_CAPABLE_PLATFORM 1
+#define FASTLED_ESP32_FLASH_LOCK 1
 #define FASTLED_INTERNAL
 // ==========================================
 // FIX 1: Force FastLED to use Hardware SPI for standard definitions
@@ -285,12 +284,6 @@ void setup() {
   // SPI.begin(2, 3, 5, 4); 
   // SPI.setFrequency(4000000); 
 
-  // Standard WS2812B, but operates via hardware DMA SPI
-  FastLED.addLeds<WS2812B, PIXELS_PIN, GRB>(leds, NUM_PIXELS);
-  
-  FastLED.setBrightness(BRIGHTNESS);
-  FastLED.show();
-
   BLEDevice::init(BLE_NAME);
   BLEServer *pServer = BLEDevice::createServer();
   pServer->setCallbacks(new MyServerCallbacks());
@@ -314,10 +307,16 @@ void setup() {
   esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_DEFAULT, ESP_PWR_LVL_P3);
   esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_ADV, ESP_PWR_LVL_P3);
   esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_SCAN, ESP_PWR_LVL_P3);
+
+  // Standard WS2812B, but operates via hardware DMA SPI
+  FastLED.addLeds<WS2812B, PIXELS_PIN, GRB>(leds, NUM_PIXELS);
+  
+  FastLED.setBrightness(BRIGHTNESS);
+  FastLED.show();
 }
 
 void loop() {
-  EVERY_N_MILLISECONDS(33) {
+  EVERY_N_MILLISECONDS(50) {
     if (deviceConnected) {
       if (animationActive) {
         runAnimationLoop();
