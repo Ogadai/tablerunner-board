@@ -1,5 +1,9 @@
 #define FASTLED_ESP32_FLASH_LOCK 1
 #define FASTLED_INTERNAL
+// ==========================================
+// FIX 1: Force FastLED to use Hardware SPI for standard definitions
+// ==========================================
+#define FASTLED_ALL_PINS_HARDWARE_SPI
 
 #include <BLEDevice.h>
 #include <BLEUtils.h>
@@ -44,6 +48,7 @@ bool enableSerial = true;
 // FIXED: Tracks the previous status light state to prevent hammering FastLED.show()
 unsigned long lastStatusLightState = 999; 
 bool ledUpdated = false;
+bool ledEditing = false;
 
 CRGB leds[NUM_PIXELS];
 
@@ -177,6 +182,7 @@ void runAnimationLoop() {
   if (!animationActive || activeTrackCount == 0) return;
 
   if (millis() - lastAnimationUpdate >= ANIMATION_INTERVAL) {
+    ledEditing = true;
     lastAnimationUpdate = millis();
 
     for (uint16_t t = 0; t < activeTrackCount; t++) {
@@ -191,6 +197,7 @@ void runAnimationLoop() {
       track.currentColorIndex = (track.currentColorIndex + 1) % track.colorCount;
     }
     ledUpdated = true;
+    ledEditing = false;
   }
 }
 
@@ -216,6 +223,7 @@ class MyServerCallbacks: public BLEServerCallbacks {
 
 class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic *pCharacteristic) override {
+      ledEditing = true;
       String value = String(pCharacteristic->getValue().c_str());
 
       if (value.startsWith("LED|")) {
@@ -256,6 +264,8 @@ class MyCharacteristicCallbacks: public BLECharacteristicCallbacks {
         ledUpdated = true;
         serialPrintLn("Brightness updated to: %d", newBrightness);
       }
+
+      ledEditing = false;
     }
 };
 
@@ -269,7 +279,17 @@ void setup() {
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, HIGH);
 
+  // C3 defaults: change the MOSI pin to 5 before initialization
+  SPI.end(); // Clear defaults if any exist
+  // Parameters: SCK, MISO, MOSI, SS (We only care about MOSI being Pin 5)
+  SPI.begin(2, 3, 5, 4); 
+
+  // Set the hardware SPI clock speed to 4MHz (extremely stable for single-core WS2812B)
+  SPI.setFrequency(4000000); 
+
+  // Standard WS2812B, but operates via hardware DMA SPI
   FastLED.addLeds<WS2812B, PIXELS_PIN, GRB>(leds, NUM_PIXELS);
+  
   FastLED.setBrightness(BRIGHTNESS);
   FastLED.show();
 
@@ -320,9 +340,10 @@ void loop() {
     }
   }
 
-  EVERY_N_MILLISECONDS(33) {
-    if (ledUpdated) {
+  EVERY_N_MILLISECONDS(100) {
+    if (ledUpdated && !ledEditing) {
       ledUpdated = false;
+
       FastLED.show();
     }
   }
